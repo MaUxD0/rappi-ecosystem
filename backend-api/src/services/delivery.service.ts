@@ -19,10 +19,7 @@ export async function getAvailableOrders() {
 
 export async function acceptOrder(orderId: string, deliveryId: string) {
   const result = await pool.query(
-    `UPDATE orders
-     SET deliveryid = $1
-     WHERE id = $2
-     RETURNING *`,
+    `UPDATE orders SET deliveryid = $1 WHERE id = $2 RETURNING *`,
     [deliveryId, orderId]
   );
   return result.rows[0];
