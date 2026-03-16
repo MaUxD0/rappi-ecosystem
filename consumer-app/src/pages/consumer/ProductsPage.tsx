@@ -1,6 +1,5 @@
-
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { getProductsByStore } from "../../services/productService";
 import { createOrder, addProductToOrder } from "../../services/orderService";
 
@@ -10,17 +9,10 @@ interface Product {
   price: number;
 }
 
-interface CartItem {
-  product: Product;
-  quantity: number;
-}
-
 export default function ProductsPage() {
   const { storeId } = useParams<{ storeId: string }>();
-  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
 
   useEffect(() => {
     async function loadProducts() {
@@ -34,7 +26,7 @@ export default function ProductsPage() {
     loadProducts();
   }, [storeId]);
 
-  const addToCart = (product: Product) => {
+  function addToCart(product: Product) {
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
@@ -46,49 +38,54 @@ export default function ProductsPage() {
       }
       return [...prev, { product, quantity: 1 }];
     });
-  };
+  }
 
-  const handleCreateOrder = async () => {
-    if (cart.length === 0) return alert("Cart is empty");
-    setLoading(true);
+  async function handleOrder() {
+    if (cart.length === 0) {
+      alert("El carrito está vacío");
+      return;
+    }
     try {
-      const token = localStorage.getItem("token")!;
-      const order = await createOrder(storeId!, token);
+      const order = await createOrder(storeId!);
       for (const item of cart) {
-        await addProductToOrder(order.id, item.product.id, item.quantity, token);
+        await addProductToOrder(order.id, item.product.id, item.quantity);
       }
-      alert("Order created successfully!");
+      alert("Orden creada exitosamente");
       setCart([]);
-      navigate("/my-orders");
+      window.location.href = "/my-orders";
     } catch (error) {
       console.error(error);
-      alert("Error creating order");
-    } finally {
-      setLoading(false);
+      alert("Error creando la orden");
     }
-  };
+  }
 
   return (
     <div>
       <h1>Products</h1>
       {products.map((product) => (
-        <div key={product.id} style={{ border: "1px solid #ccc", margin: "8px", padding: "12px" }}>
-          <p>{product.name} - ${product.price}</p>
-          <button onClick={() => addToCart(product)}>Add to cart</button>
+        <div
+          key={product.id}
+          style={{ border: "1px solid #ccc", margin: "8px", padding: "8px" }}
+        >
+          <p>{product.name} — ${product.price}</p>
+          <button onClick={() => addToCart(product)}>Agregar al carrito</button>
         </div>
       ))}
 
-      <h2>Cart</h2>
-      {cart.length === 0 ? <p>Empty cart</p> : (
-        <>
-          {cart.map((item) => (
-            <p key={item.product.id}>{item.product.name} x{item.quantity}</p>
-          ))}
-          <button onClick={handleCreateOrder} disabled={loading}>
-            {loading ? "Creating..." : "Create Order"}
-          </button>
-        </>
+      <hr />
+      <h2>Carrito</h2>
+      {cart.length === 0 ? (
+        <p>Vacío</p>
+      ) : (
+        cart.map((item) => (
+          <div key={item.product.id}>
+            <p>{item.product.name} x{item.quantity}</p>
+          </div>
+        ))
       )}
+      <button onClick={handleOrder}>Hacer pedido</button>
+      <br />
+      <a href="/stores">← Volver a tiendas</a>
     </div>
   );
 }

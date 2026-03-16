@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { getMyOrders } from "../../services/orderService";
 
@@ -13,29 +12,34 @@ export default function MyOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
 
   useEffect(() => {
-    async function load() {
+    async function loadOrders() {
       try {
-        const token = localStorage.getItem("token")!;
-        const data = await getMyOrders(token);
+        const data = await getMyOrders();
         setOrders(data);
       } catch (error) {
-        console.error(error);
+        console.error("Error loading orders", error);
       }
     }
-    load();
+    loadOrders();
   }, []);
 
   return (
     <div>
-      <h1>My Orders</h1>
-      {orders.length === 0 ? <p>No orders yet</p> : (
+      <h1>Mis Órdenes</h1>
+      {orders.length === 0 ? (
+        <p>No tienes órdenes aún</p>
+      ) : (
         orders.map((order, i) => (
-          <div key={i} style={{ border: "1px solid #ccc", margin: "8px", padding: "12px" }}>
-            <p>Order: {order.orderid}</p>
-            <p>Product: {order.productname} x{order.quantity}</p>
+          <div
+            key={i}
+            style={{ border: "1px solid #ccc", margin: "8px", padding: "8px" }}
+          >
+            <p>Orden: {order.orderid}</p>
+            <p>Producto: {order.productname} x{order.quantity}</p>
           </div>
         ))
       )}
+      <a href="/stores">← Volver a tiendas</a>
     </div>
   );
 }

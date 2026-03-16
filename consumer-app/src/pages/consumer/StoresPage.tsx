@@ -1,4 +1,3 @@
-// consumer-app/src/pages/StoresPage.tsx
 import { useEffect, useState } from "react";
 import { getStores } from "../../services/storeService";
 import { useNavigate } from "react-router-dom";
@@ -6,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 interface Store {
   id: string;
   name: string;
+  isopen: boolean;
 }
 
 export default function StoresPage() {
@@ -17,8 +17,8 @@ export default function StoresPage() {
       try {
         const data = await getStores();
         setStores(data);
-      } catch (error) {
-        console.error("Error loading stores", error);
+      } catch {
+        console.error("Error loading stores");
       }
     }
     loadStores();
@@ -28,8 +28,13 @@ export default function StoresPage() {
     <div>
       <h1>Stores</h1>
       {stores.map((store) => (
-        <div key={store.id} onClick={() => navigate(`/stores/${store.id}/products`)} style={{ cursor: "pointer", border: "1px solid #ccc", margin: "8px", padding: "12px" }}>
+        <div
+          key={store.id}
+          style={{ border: "1px solid #ccc", margin: "8px", padding: "8px", cursor: "pointer" }}
+          onClick={() => navigate(`/stores/${store.id}/products`)}
+        >
           <h3>{store.name}</h3>
+          <p>{store.isopen ? "🟢 Abierto" : "🔴 Cerrado"}</p>
         </div>
       ))}
     </div>

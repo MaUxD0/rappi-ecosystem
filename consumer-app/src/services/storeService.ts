@@ -1,4 +1,3 @@
-// consumer-app/src/services/storeService.ts
 import { api } from "../api/api";
 
 export async function getStores() {

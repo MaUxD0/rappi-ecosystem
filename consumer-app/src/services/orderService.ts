@@ -1,7 +1,7 @@
-
 import { api } from "../api/api";
 
-export async function createOrder(storeId: string, token: string) {
+export async function createOrder(storeId: string) {
+  const token = localStorage.getItem("token")!;
   const response = await api.post(
     "/orders",
     { storeId },
@@ -10,7 +10,8 @@ export async function createOrder(storeId: string, token: string) {
   return response.data;
 }
 
-export async function addProductToOrder(orderId: string, productId: string, quantity: number, token: string) {
+export async function addProductToOrder(orderId: string, productId: string, quantity: number) {
+  const token = localStorage.getItem("token")!;
   const response = await api.post(
     "/orders/add-product",
     { orderId, productId, quantity },
@@ -19,7 +20,8 @@ export async function addProductToOrder(orderId: string, productId: string, quan
   return response.data;
 }
 
-export async function getMyOrders(token: string) {
+export async function getMyOrders() {
+  const token = localStorage.getItem("token")!;
   const response = await api.get("/orders/my-orders", {
     headers: { Authorization: `Bearer ${token}` },
   });

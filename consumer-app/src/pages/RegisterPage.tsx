@@ -1,4 +1,3 @@
-// consumer-app/src/pages/RegisterPage.tsx
 import { useState } from "react";
 import { register } from "../services/authService";
 
@@ -13,11 +12,11 @@ export default function RegisterPage() {
     try {
       const finalName = role === "store" ? storeName : name;
       if (!finalName || !email || !password) {
-        alert("Please fill all fields");
+        alert("Por favor llena todos los campos");
         return;
       }
       await register(finalName, email, password, role);
-      alert("User created successfully! Please login.");
+      alert("Usuario creado exitosamente. Por favor inicia sesión.");
       window.location.href = "/";
     } catch (error) {
       alert("Register failed");
@@ -54,7 +53,7 @@ export default function RegisterPage() {
       />
       <br />
 
-      <select onChange={(e) => setRole(e.target.value)} value={role}>
+      <select value={role} onChange={(e) => setRole(e.target.value)}>
         <option value="consumer">Consumer</option>
         <option value="store">Store</option>
         <option value="delivery">Delivery</option>
@@ -73,7 +72,9 @@ export default function RegisterPage() {
       )}
 
       <button onClick={handleRegister}>Register</button>
-      <p>Ya tienes cuenta? <a href="/">Login</a></p>
+      <p>
+        ¿Ya tienes cuenta? <a href="/">Login</a>
+      </p>
     </div>
   );
 }
