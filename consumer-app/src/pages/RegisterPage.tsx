@@ -1,49 +1,50 @@
+// consumer-app/src/pages/RegisterPage.tsx
 import { useState } from "react";
 import { register } from "../services/authService";
 
 export default function RegisterPage() {
-
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("consumer");
+  const [storeName, setStoreName] = useState("");
 
   const handleRegister = async () => {
-
     try {
-
-      await register(name, email, password, role);
-
-      alert("User created successfully");
-
+      const finalName = role === "store" ? storeName : name;
+      if (!finalName || !email || !password) {
+        alert("Please fill all fields");
+        return;
+      }
+      await register(finalName, email, password, role);
+      alert("User created successfully! Please login.");
+      window.location.href = "/";
     } catch (error) {
-
       alert("Register failed");
-      console.error("Register error:", error);
-
+      console.error(error);
     }
-
   };
 
   return (
     <div>
-
       <h1>Register</h1>
 
-      <input
-        type="text"
-        placeholder="Name"
-        onChange={(e) => setName(e.target.value)}
-      />
-
-      <br />
+      {role !== "store" && (
+        <>
+          <input
+            type="text"
+            placeholder="Name"
+            onChange={(e) => setName(e.target.value)}
+          />
+          <br />
+        </>
+      )}
 
       <input
         type="email"
         placeholder="Email"
         onChange={(e) => setEmail(e.target.value)}
       />
-
       <br />
 
       <input
@@ -51,26 +52,28 @@ export default function RegisterPage() {
         placeholder="Password"
         onChange={(e) => setPassword(e.target.value)}
       />
-
       <br />
 
-      <select onChange={(e) => setRole(e.target.value)}>
-
+      <select onChange={(e) => setRole(e.target.value)} value={role}>
         <option value="consumer">Consumer</option>
-
         <option value="store">Store</option>
-
         <option value="delivery">Delivery</option>
-
       </select>
-
       <br />
 
-      <button onClick={handleRegister}>
-        Register
-      </button>
+      {role === "store" && (
+        <>
+          <input
+            type="text"
+            placeholder="Store Name"
+            onChange={(e) => setStoreName(e.target.value)}
+          />
+          <br />
+        </>
+      )}
 
+      <button onClick={handleRegister}>Register</button>
+      <p>Ya tienes cuenta? <a href="/">Login</a></p>
     </div>
   );
-
 }
