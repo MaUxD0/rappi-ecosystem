@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { getAllStores } from "../controllers/store.controller";
+import { getStores } from "../services/store.service";
 
 const router = Router();
 
-router.get("/", getAllStores);
+router.get("/", getStores);
 
 export default router;
