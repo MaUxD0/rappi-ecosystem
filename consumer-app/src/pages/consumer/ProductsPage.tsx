@@ -13,6 +13,7 @@ export default function ProductsPage() {
   const { storeId } = useParams<{ storeId: string }>();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     async function loadProducts() {
@@ -28,23 +29,32 @@ export default function ProductsPage() {
 
   function addToCart(product: Product) {
     setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
+      const existing = prev.find((i) => i.product.id === product.id);
+      if (existing)
+        return prev.map((i) =>
+          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
         );
-      }
       return [...prev, { product, quantity: 1 }];
     });
   }
 
+  function removeFromCart(productId: string) {
+    setCart((prev) => {
+      const existing = prev.find((i) => i.product.id === productId);
+      if (existing && existing.quantity > 1)
+        return prev.map((i) =>
+          i.product.id === productId ? { ...i, quantity: i.quantity - 1 } : i
+        );
+      return prev.filter((i) => i.product.id !== productId);
+    });
+  }
+
+  const cartTotal = cart.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+  const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
+
   async function handleOrder() {
-    if (cart.length === 0) {
-      alert("El carrito está vacío");
-      return;
-    }
+    if (cart.length === 0) { alert("El carrito está vacío"); return; }
+    setLoading(true);
     try {
       const order = await createOrder(storeId!);
       for (const item of cart) {
@@ -56,36 +66,135 @@ export default function ProductsPage() {
     } catch (error) {
       console.error(error);
       alert("Error creando la orden");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
-    <div>
-      <h1>Products</h1>
-      {products.map((product) => (
-        <div
-          key={product.id}
-          style={{ border: "1px solid #ccc", margin: "8px", padding: "8px" }}
-        >
-          <p>{product.name} — ${product.price}</p>
-          <button onClick={() => addToCart(product)}>Agregar al carrito</button>
+    <div className="min-h-screen bg-gray-50">
+      {/* Topbar */}
+      <header className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
+        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+          <h1 className="text-3xl font-black text-orange-500 tracking-tighter" style={{ fontFamily: 'Nunito, sans-serif' }}>
+            rappi
+          </h1>
+          <a href="/stores">
+            <button className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm px-4 py-2 rounded-full transition-all" style={{ fontFamily: 'Nunito, sans-serif' }}>
+              ← Tiendas
+            </button>
+          </a>
         </div>
-      ))}
+      </header>
 
-      <hr />
-      <h2>Carrito</h2>
-      {cart.length === 0 ? (
-        <p>Vacío</p>
-      ) : (
-        cart.map((item) => (
-          <div key={item.product.id}>
-            <p>{item.product.name} x{item.quantity}</p>
+      <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="flex gap-6 items-start">
+          {/* Products */}
+          <div className="flex-1">
+            <h2 className="text-2xl font-black text-gray-900 mb-1" style={{ fontFamily: 'Nunito, sans-serif' }}>Menu</h2>
+            <p className="text-gray-400 text-sm mb-6">Agrega lo que quieras al carrito</p>
+
+            {products.length === 0 ? (
+              <div className="text-center py-20 text-gray-400">
+                <p className="font-bold">No hay productos disponibles</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {products.map((product) => {
+                  const inCart = cart.find((i) => i.product.id === product.id);
+                  return (
+                    <div key={product.id} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex items-center gap-4">
+                      <div className="w-14 h-14 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 font-black text-xl flex-shrink-0" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                        {product.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-black text-gray-900 text-sm" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                          {product.name}
+                        </p>
+                        <p className="text-orange-500 font-black text-base" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                          ${product.price.toFixed(2)}
+                        </p>
+                      </div>
+                      {inCart ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => removeFromCart(product.id)}
+                            className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-black text-lg text-gray-600 transition-all"
+                          >−</button>
+                          <span className="w-6 text-center font-black text-orange-500" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                            {inCart.quantity}
+                          </span>
+                          <button
+                            onClick={() => addToCart(product)}
+                            className="w-8 h-8 rounded-full bg-orange-500 hover:bg-orange-600 flex items-center justify-center font-black text-lg text-white transition-all"
+                          >+</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => addToCart(product)}
+                          className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm px-4 py-2 rounded-full transition-all" style={{ fontFamily: 'Nunito, sans-serif' }}
+                        >
+                          Agregar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        ))
-      )}
-      <button onClick={handleOrder}>Hacer pedido</button>
-      <br />
-      <a href="/stores">← Volver a tiendas</a>
+
+          {/* Cart */}
+          <div className="w-72 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm sticky top-20 flex-shrink-0">
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="font-black text-gray-900 text-lg" style={{ fontFamily: 'Nunito, sans-serif' }}>Tu carrito</h3>
+              {cartCount > 0 && (
+                <span className="bg-orange-100 text-orange-600 text-xs font-bold px-2 py-0.5 rounded-full">
+                  {cartCount}
+                </span>
+              )}
+            </div>
+
+            {cart.length === 0 ? (
+              <p className="text-gray-400 text-sm text-center py-8">
+                Agrega productos para comenzar
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-col divide-y divide-gray-100">
+                  {cart.map((item) => (
+                    <div key={item.product.id} className="flex justify-between items-center py-3 text-sm">
+                      <span className="font-semibold text-gray-700 truncate mr-2">{item.product.name}</span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="bg-gray-100 text-gray-500 text-xs font-bold px-2 py-0.5 rounded-full">
+                          x{item.quantity}
+                        </span>
+                        <span className="font-black text-orange-500" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                          ${(item.product.price * item.quantity).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-gray-100 mb-4">
+                  <span className="font-black text-gray-800" style={{ fontFamily: 'Nunito, sans-serif' }}>Total</span>
+                  <span className="font-black text-orange-500 text-xl" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                    ${cartTotal.toFixed(2)}
+                  </span>
+                </div>
+                <button
+                  onClick={handleOrder}
+                  disabled={loading}
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-black py-3 rounded-xl transition-all shadow-lg shadow-orange-200"
+                  style={{ fontFamily: 'Nunito, sans-serif' }}
+                >
+                  {loading ? "Procesando..." : "Hacer pedido"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
