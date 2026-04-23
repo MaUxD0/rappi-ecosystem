@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getStoreByUser, toggleStore, getStoreOrders } from "../../services/storeService";
 import { getProductsByStore, createProduct } from "../../services/productService";
+import { supabase } from "../../lib/supabase";
 
 interface Store { id: string; name: string; isopen: boolean; }
 interface Product { id: string; name: string; price: number; }
@@ -10,6 +11,7 @@ interface Order {
   productname: string;
   quantity: number;
   deliveryid: string | null;
+  status: string;
 }
 
 export default function StoreDashboardPage() {
@@ -38,6 +40,42 @@ export default function StoreDashboardPage() {
     loadData();
   }, []);
 
+  // Suscribirse en tiempo real a los cambios de estado de cada orden
+  useEffect(() => {
+    if (orders.length === 0) return;
+
+    const channels = orders.map((order) => {
+      const channel = supabase.channel(`order:${order.orderid}`);
+
+      channel
+        .on("broadcast", { event: "position-update" }, (payload) => {
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.orderid === order.orderid
+                ? { ...o, status: payload.payload.status }
+                : o
+            )
+          );
+        })
+        .on("broadcast", { event: "order-delivered" }, (payload) => {
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.orderid === payload.payload.orderId
+                ? { ...o, status: "Entregado" }
+                : o
+            )
+          );
+        })
+        .subscribe();
+
+      return channel;
+    });
+
+    return () => {
+      channels.forEach((channel) => supabase.removeChannel(channel));
+    };
+  }, [orders]);
+
   async function handleToggle() {
     if (!store) return;
     try {
@@ -63,6 +101,17 @@ export default function StoreDashboardPage() {
     }
   }
 
+  function getStatusStyle(status: string) {
+    switch (status) {
+      case "En entrega":
+        return "bg-orange-100 text-orange-600";
+      case "Entregado":
+        return "bg-green-100 text-green-600";
+      default:
+        return "bg-blue-100 text-blue-600";
+    }
+  }
+
   if (!store)
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-400 text-sm">
@@ -70,14 +119,13 @@ export default function StoreDashboardPage() {
       </div>
     );
 
-  const pendingOrders = orders.filter((o) => !o.deliveryid).length;
+  const pendingOrders = orders.filter((o) => o.status === "Creado").length;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Topbar */}
       <header className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
-          <h1 className="text-3xl font-black text-orange-500 tracking-tighter" style={{ fontFamily: 'Nunito, sans-serif' }}>
+          <h1 className="text-3xl font-black text-orange-500 tracking-tighter" style={{ fontFamily: "Nunito, sans-serif" }}>
             rappi
           </h1>
           <span className="bg-orange-100 text-orange-600 text-xs font-bold px-3 py-1 rounded-full">
@@ -89,7 +137,9 @@ export default function StoreDashboardPage() {
       <div className="max-w-4xl mx-auto px-6 py-8">
         {/* Hero */}
         <div className="bg-gradient-to-r from-orange-500 to-orange-400 rounded-2xl p-8 mb-6 text-white">
-          <h2 className="text-2xl font-black mb-1" style={{ fontFamily: 'Nunito, sans-serif' }}>{store.name}</h2>
+          <h2 className="text-2xl font-black mb-1" style={{ fontFamily: "Nunito, sans-serif" }}>
+            {store.name}
+          </h2>
           <p className="text-orange-100 text-sm">Panel de administración</p>
         </div>
 
@@ -101,17 +151,19 @@ export default function StoreDashboardPage() {
             { value: pendingOrders, label: "Sin repartidor", color: pendingOrders > 0 ? "text-yellow-500" : "text-green-500" },
           ].map((stat) => (
             <div key={stat.label} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-              <p className={`text-4xl font-black ${stat.color}`} style={{ fontFamily: 'Nunito, sans-serif' }}>{stat.value}</p>
+              <p className={`text-4xl font-black ${stat.color}`} style={{ fontFamily: "Nunito, sans-serif" }}>
+                {stat.value}
+              </p>
               <p className="text-xs text-gray-400 font-semibold mt-1">{stat.label}</p>
             </div>
           ))}
         </div>
 
-        {/* Status toggle */}
+        {/* Toggle estado tienda */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm mb-6 flex items-center gap-4">
           <div className={`w-3 h-3 rounded-full flex-shrink-0 ${store.isopen ? "bg-green-500 shadow-[0_0_0_4px_rgba(0,200,83,0.2)]" : "bg-gray-300"}`} />
           <div className="flex-1">
-            <p className="font-black text-gray-900 text-sm" style={{ fontFamily: 'Nunito, sans-serif' }}>
+            <p className="font-black text-gray-900 text-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
               Tienda {store.isopen ? "Abierta" : "Cerrada"}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
@@ -125,7 +177,7 @@ export default function StoreDashboardPage() {
                 ? "bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-200"
                 : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-200"
             }`}
-            style={{ fontFamily: 'Nunito, sans-serif' }}
+            style={{ fontFamily: "Nunito, sans-serif" }}
           >
             {store.isopen ? "Cerrar" : "Abrir"}
           </button>
@@ -138,11 +190,9 @@ export default function StoreDashboardPage() {
               key={t}
               onClick={() => setTab(t)}
               className={`px-5 py-2 rounded-full text-sm font-bold transition-all ${
-                tab === t
-                  ? "bg-white text-orange-500 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                tab === t ? "bg-white text-orange-500 shadow-sm" : "text-gray-500 hover:text-gray-700"
               }`}
-              style={{ fontFamily: 'Nunito, sans-serif' }}
+              style={{ fontFamily: "Nunito, sans-serif" }}
             >
               {t === "products" ? "Productos" : (
                 <span className="flex items-center gap-2">
@@ -160,9 +210,8 @@ export default function StoreDashboardPage() {
 
         {tab === "products" && (
           <div>
-            {/* Create product */}
             <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm mb-6">
-              <p className="font-black text-gray-900 text-sm mb-4" style={{ fontFamily: 'Nunito, sans-serif' }}>
+              <p className="font-black text-gray-900 text-sm mb-4" style={{ fontFamily: "Nunito, sans-serif" }}>
                 Nuevo producto
               </p>
               <div className="flex gap-3">
@@ -183,7 +232,7 @@ export default function StoreDashboardPage() {
                 <button
                   onClick={handleCreateProduct}
                   className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-5 py-3 rounded-xl transition-all shadow-lg shadow-orange-200 flex-shrink-0"
-                  style={{ fontFamily: 'Nunito, sans-serif' }}
+                  style={{ fontFamily: "Nunito, sans-serif" }}
                 >
                   Crear
                 </button>
@@ -198,11 +247,11 @@ export default function StoreDashboardPage() {
               <div className="flex flex-col gap-3">
                 {products.map((p) => (
                   <div key={p.id} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 font-black text-xl flex-shrink-0" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                    <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 font-black text-xl flex-shrink-0">
                       {p.name.charAt(0).toUpperCase()}
                     </div>
-                    <p className="flex-1 font-black text-gray-900 text-sm" style={{ fontFamily: 'Nunito, sans-serif' }}>{p.name}</p>
-                    <p className="font-black text-orange-500 text-base" style={{ fontFamily: 'Nunito, sans-serif' }}>${p.price.toFixed(2)}</p>
+                    <p className="flex-1 font-black text-gray-900 text-sm">{p.name}</p>
+                    <p className="font-black text-orange-500 text-base">${p.price.toFixed(2)}</p>
                   </div>
                 ))}
               </div>
@@ -220,20 +269,20 @@ export default function StoreDashboardPage() {
               <div className="flex flex-col gap-3">
                 {orders.map((order, i) => (
                   <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 font-black text-sm flex-shrink-0" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                    <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 font-black text-sm flex-shrink-0">
                       #{i + 1}
                     </div>
                     <div className="flex-1">
-                      <p className="font-black text-gray-900 text-sm" style={{ fontFamily: 'Nunito, sans-serif' }}>
+                      <p className="font-black text-gray-900 text-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
                         {order.productname}
                         <span className="text-gray-400 font-semibold ml-2">x{order.quantity}</span>
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5 font-mono">{order.orderid.slice(0, 12)}...</p>
+                      <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                        {order.orderid.slice(0, 12)}...
+                      </p>
                     </div>
-                    <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                      order.deliveryid ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-500"
-                    }`}>
-                      {order.deliveryid ? "Asignado" : "Pendiente"}
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full ${getStatusStyle(order.status)}`}>
+                      {order.status || "Creado"}
                     </span>
                   </div>
                 ))}
