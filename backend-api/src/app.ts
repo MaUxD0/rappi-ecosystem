@@ -7,17 +7,23 @@ import productRoutes from "./modules/products.routes";
 import orderRoutes from "./modules/orders/orders.routes";
 import deliveryRoutes from "./modules/delivery/delivery.routes";
 import storeRoutes from "./routes/store.routes";
-import positionRoutes from "./features/positions/position.routes"; // ← NUEVO
+import positionRoutes from "./features/positions/position.routes";
 
 const app = express();
-app.use(cors());
+
+app.use(cors({
+  origin: "*", // o especifica tu dominio: "https://rappi-ecosystem-frontend-qwht80gpk-mauxs-projects-f591c1f2.vercel.app"
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
 app.use(express.json());
 
 app.use("/stores", storeRoutes);
 app.use("/products", productRoutes);
 app.use("/orders", orderRoutes);
 app.use("/delivery", deliveryRoutes);
-app.use("/delivery", positionRoutes); // ← NUEVO (mismo prefijo /delivery)
+app.use("/delivery", positionRoutes);
 app.use("/auth", authRoutes);
 
 app.get("/store-only", authenticateToken, authorizeRole("store"), (req, res) => {
