@@ -10,7 +10,9 @@ export async function getAvailableOrders() {
        o.deliveryid,
        o.status,
        u.name as consumername,
-       s.name as storename
+       s.name as storename,
+       ST_X(destination::geometry) as destination_lng,
+       ST_Y(destination::geometry) as destination_lat
      FROM orders o
      JOIN users u ON o.consumerid = u.id
      JOIN stores s ON o.storeid = s.id

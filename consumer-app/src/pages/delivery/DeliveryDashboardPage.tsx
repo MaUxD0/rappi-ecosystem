@@ -117,11 +117,10 @@ export default function DeliveryDashboardPage() {
   async function handleAccept(order: Order) {
   try {
     const result = await acceptOrder(order.id);
-    // Usar el resultado que ya trae destination_lat y destination_lng
     setActiveOrder({
       ...order,
-      destination_lat: result.destination_lat,
-      destination_lng: result.destination_lng,
+      destination_lat: result.destination_lat ?? order.destination_lat,
+      destination_lng: result.destination_lng ?? order.destination_lng,
       status: result.status,
     });
     setDelivered(false);
