@@ -27,6 +27,7 @@ export async function getOrdersByStore(storeId: string) {
        o.id as orderid,
        o.consumerid,
        o.deliveryid,
+        o.status,
        p.name as productname,
        oi.quantity
      FROM orders o
