@@ -49,6 +49,7 @@ export default function MyOrdersPage() {
   const [orderStatus, setOrderStatus] = useState<string>("");
   const [showToast, setShowToast] = useState(false);
 
+  // Cargar órdenes inicialmente y hacer polling cada 2 segundos
   useEffect(() => {
     async function loadOrders() {
       try {
@@ -59,6 +60,10 @@ export default function MyOrdersPage() {
       }
     }
     loadOrders();
+
+    // Polling cada 2 segundos para actualizar estado
+    const interval = setInterval(loadOrders, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   // Suscribirse al canal de Supabase cuando el usuario selecciona un pedido
@@ -69,19 +74,25 @@ export default function MyOrdersPage() {
 
     channel
       .on("broadcast", { event: "position-update" }, (payload) => {
+        console.log("📍 Position update:", payload.payload);
         setDeliveryPosition({
           lat: payload.payload.lat,
           lng: payload.payload.lng,
         });
         setOrderStatus(payload.payload.status);
       })
-      .on("broadcast", { event: "order-delivered" }, () => {
+      .on("broadcast", { event: "order-delivered" }, (payload) => {
+        console.log("✅ Order delivered:", payload);
         setOrderStatus("Entregado");
         setShowToast(true);
+        // Recargar órdenes para actualizar UI
+        getMyOrders().then(data => setOrders(data)).catch(console.error);
         // Ocultar toast después de 5 segundos
         setTimeout(() => setShowToast(false), 5000);
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log("📡 Supabase subscription status:", status);
+      });
 
     return () => {
       supabase.removeChannel(channel);

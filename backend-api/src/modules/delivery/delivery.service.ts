@@ -26,7 +26,9 @@ export async function acceptOrder(orderId: string, deliveryId: string) {
     `UPDATE orders 
      SET deliveryid = $1, status = $2
      WHERE id = $3 
-     RETURNING id, consumerid, storeid, deliveryid, status`,
+     RETURNING id, consumerid, storeid, deliveryid, status, 
+               ST_X(destination::geometry) as destination_lng,
+               ST_Y(destination::geometry) as destination_lat`,
     [deliveryId, OrderStatus.IN_DELIVERY, orderId]
   );
   return result.rows[0];
