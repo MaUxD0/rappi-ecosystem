@@ -22,9 +22,12 @@ export async function updatePosition(req: Request, res: Response) {
       lng
     );
 
-   // Broadcast posición en tiempo real a consumidores
-const channel = supabase.channel(`order:${orderId}`);
-await channel.subscribe(); 
+const channel = supabase.channel(`order:${orderId}`, {
+  config: {
+    broadcast: { self: true },
+  },
+});
+await channel.subscribe();
 
 await channel.send({
   type: "broadcast",
@@ -32,7 +35,6 @@ await channel.send({
   payload: { lat, lng, status: result.status },
 });
 
-// Si llegó al destino (< 5 metros), marcar como Entregado
 if (result.arrived) {
   const delivered = await markAsDelivered(
     Array.isArray(orderId) ? orderId[0] : orderId
@@ -44,6 +46,8 @@ if (result.arrived) {
     payload: { orderId, status: delivered.status },
   });
 
+  await supabase.removeChannel(channel);
+
   return res.json({
     ...result,
     status: delivered.status,
@@ -51,7 +55,8 @@ if (result.arrived) {
   });
 }
 
-  res.json(result);
+await supabase.removeChannel(channel);
+res.json(result);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Internal server error" });

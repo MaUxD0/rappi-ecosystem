@@ -33,10 +33,11 @@ interface DeliveryPosition {
   lng: number;
 }
 
-function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
+// Agrega este componente dentro del archivo
+function MapUpdater({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
   useEffect(() => {
-    map.setView([lat, lng]);
+    map.setView([lat, lng], 17);
   }, [lat, lng, map]);
   return null;
 }
@@ -188,12 +189,11 @@ export default function MyOrdersPage() {
                   style={{ height: "300px", width: "100%" }}
                 >
                   <TileLayer
-          
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution="&copy; OpenStreetMap contributors"
                     />
-  {/* ✅ FIX: re-centrar el mapa al moverse el repartidor */}
-  <RecenterMap lat={deliveryPosition.lat} lng={deliveryPosition.lng} />
+  {/*  FIX: re-centrar el mapa al moverse el repartidor */}
+                  <MapUpdater lat={deliveryPosition.lat} lng={deliveryPosition.lng} />
                   <Marker position={[deliveryPosition.lat, deliveryPosition.lng]} icon={deliveryIcon}>
                     <Popup>🛵 Tu repartidor</Popup>
                   </Marker>
