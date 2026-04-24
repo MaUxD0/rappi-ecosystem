@@ -70,31 +70,47 @@ export default function MyOrdersPage() {
   useEffect(() => {
     if (!trackingOrderId) return;
 
-    const channel = supabase.channel(`order:${trackingOrderId}`);
+    const channel = supabase.channel(`order:${trackingOrderId}`, {
+      config: {
+        broadcast: { self: true },
+      },
+    });
 
-    channel
-      .on("broadcast", { event: "position-update" }, (payload) => {
-        console.log("📍 Position update:", payload.payload);
+    const handlePositionUpdate = (payload: any) => {
+      console.log("📍 Position update:", payload.payload);
+      if (payload.payload.lat && payload.payload.lng) {
         setDeliveryPosition({
           lat: payload.payload.lat,
           lng: payload.payload.lng,
         });
-        setOrderStatus(payload.payload.status);
-      })
-      .on("broadcast", { event: "order-delivered" }, (payload) => {
-        console.log("✅ Order delivered:", payload);
-        setOrderStatus("Entregado");
-        setShowToast(true);
-        // Recargar órdenes para actualizar UI
-        getMyOrders().then(data => setOrders(data)).catch(console.error);
-        // Ocultar toast después de 5 segundos
-        setTimeout(() => setShowToast(false), 5000);
-      })
+        setOrderStatus(payload.payload.status || "En entrega");
+      }
+    };
+
+    const handleOrderDelivered = (payload: any) => {
+      console.log("✅ Order delivered:", payload.payload);
+      setOrderStatus("Entregado");
+      setShowToast(true);
+      // Recargar órdenes para actualizar UI
+      getMyOrders().then(data => setOrders(data)).catch(console.error);
+      // Ocultar toast después de 5 segundos
+      setTimeout(() => setShowToast(false), 5000);
+    };
+
+    channel
+      .on("broadcast", { event: "position-update" }, handlePositionUpdate)
+      .on("broadcast", { event: "order-delivered" }, handleOrderDelivered)
       .subscribe((status) => {
-        console.log("📡 Supabase subscription status:", status);
+        if (status === "SUBSCRIBED") {
+          console.log("✅ Successfully subscribed to order:", trackingOrderId);
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("❌ Channel error for order:", trackingOrderId);
+        }
       });
 
     return () => {
+      console.log("🔌 Unsubscribing from order:", trackingOrderId);
+      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [trackingOrderId]);

@@ -16,49 +16,64 @@ export async function updatePosition(req: Request, res: Response) {
       return res.status(400).json({ error: "lat and lng are required" });
     }
 
-    const result = await updateDeliveryPosition(
-      Array.isArray(orderId) ? orderId[0] : orderId,
-      lat,
-      lng
-    );
+    const cleanOrderId = Array.isArray(orderId) ? orderId[0] : orderId;
+    const result = await updateDeliveryPosition(cleanOrderId, lat, lng);
 
-const channel = supabase.channel(`order:${orderId}`, {
-  config: {
-    broadcast: { self: true },
-  },
-});
-await channel.subscribe();
+    // Crear canal de Supabase
+    const channel = supabase.channel(`order:${cleanOrderId}`, {
+      config: {
+        broadcast: { self: true },
+      },
+    });
 
-await channel.send({
-  type: "broadcast",
-  event: "position-update",
-  payload: { lat, lng, status: result.status },
-});
+    // Suscribirse al canal
+    await channel.subscribe();
+    console.log("✅ Channel subscribed for order:", cleanOrderId);
 
-if (result.arrived) {
-  const delivered = await markAsDelivered(
-    Array.isArray(orderId) ? orderId[0] : orderId
-  );
+    // Enviar actualización de posición
+    const broadcastResponse = await channel.send({
+      type: "broadcast",
+      event: "position-update",
+      payload: { lat, lng, status: result.status, arrived: result.arrived },
+    });
+    console.log("📍 Position broadcast sent:", broadcastResponse);
 
-  await channel.send({
-    type: "broadcast",
-    event: "order-delivered",
-    payload: { orderId, status: delivered.status },
-  });
+    // Si el delivery llegó al destino
+    if (result.arrived === true) {
+      console.log("🎉 Delivery arrived! Marking as delivered...");
+      
+      const delivered = await markAsDelivered(cleanOrderId);
+      console.log("✅ Order marked as delivered:", delivered.status);
 
-  await supabase.removeChannel(channel);
+      // Enviar notificación de entrega
+      const deliveryResponse = await channel.send({
+        type: "broadcast",
+        event: "order-delivered",
+        payload: { orderId: cleanOrderId, status: delivered.status },
+      });
+      console.log("🔔 Delivery notification sent:", deliveryResponse);
 
-  return res.json({
-    ...result,
-    status: delivered.status,
-    arrived: true,
-  });
-}
+      // Cerrar canal
+      await supabase.removeChannel(channel);
 
-await supabase.removeChannel(channel);
-res.json(result);
+      return res.json({
+        id: delivered.id,
+        status: delivered.status,
+        arrived: true,
+        message: "Order delivered successfully",
+      });
+    }
+
+    // Cerrar canal
+    await supabase.removeChannel(channel);
+    
+    return res.json({
+      id: result.id,
+      status: result.status,
+      arrived: false,
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("❌ Error in updatePosition:", error);
+    res.status(500).json({ error: "Internal server error", details: String(error) });
   }
 }

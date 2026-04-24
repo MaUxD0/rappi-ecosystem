@@ -13,14 +13,19 @@ export async function updateDeliveryPosition(
      RETURNING 
        id,
        status,
-       ST_DWithin(
+       (ST_DWithin(
          ST_SetSRID(ST_MakePoint($1, $2), 4326),
          destination,
          5
-       ) as arrived`,
+       ))::boolean as arrived`,
     [lng, lat, orderId]
   );
-  return result.rows[0];
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    status: row.status,
+    arrived: row.arrived === true
+  };
 }
 
 export async function markAsDelivered(orderId: string) {
