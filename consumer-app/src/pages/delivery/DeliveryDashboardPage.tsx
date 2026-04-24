@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import { getAvailableOrders, acceptOrder, getMyDeliveries } from "../../services/deliveryService";
 import { api } from "../../api/api";
+import { supabase } from "../../lib/supabase";
 import L from "leaflet";
 
 // Fix íconos leaflet
@@ -59,6 +60,9 @@ export default function DeliveryDashboardPage() {
   const [position, setPosition] = useState({ lat: 3.451, lng: -76.532 });
   const [delivered, setDelivered] = useState(false);
 
+  // Canal de Supabase persistente para el pedido activo
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPosition = useRef(position);
 
@@ -77,6 +81,31 @@ export default function DeliveryDashboardPage() {
     }
     fetchData();
   }, [refresh]);
+
+  // Crear canal de Supabase cuando hay un pedido activo y mantenerlo abierto
+  useEffect(() => {
+    if (!activeOrder) return;
+
+    // Crear canal persistente
+    const channel = supabase.channel(`order:${activeOrder.id}`, {
+      config: {
+        broadcast: { self: false },
+      },
+    });
+
+    channel.subscribe((status) => {
+      console.log("📡 Delivery channel status:", status);
+    });
+
+    channelRef.current = channel;
+
+    return () => {
+      console.log("🔌 Closing delivery channel for order:", activeOrder.id);
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [activeOrder]);
 
   // Movimiento por teclado con throttle
   useEffect(() => {
@@ -102,7 +131,7 @@ export default function DeliveryDashboardPage() {
       // 2. Si ya hay throttle activo, no hacer nada más
       if (throttleRef.current) return;
 
-      // 3. Abrir ciclo de 1 segundo: enviar posición más reciente al backend
+      // 3. Enviar cada 1 segundo
       throttleRef.current = setTimeout(async () => {
         try {
           const token = localStorage.getItem("token")!;
@@ -112,9 +141,28 @@ export default function DeliveryDashboardPage() {
             { headers: { Authorization: `Bearer ${token}` } }
           );
 
-          // Si el backend detectó llegada
-          if (res.data.arrived) {
-            setDelivered(true);
+          const { lat: newLat, lng: newLng } = pendingPosition.current;
+
+          // 4. Broadcast desde el frontend (canal persistente)
+          if (channelRef.current) {
+            if (res.data.arrived) {
+              // Notificar entrega
+              await channelRef.current.send({
+                type: "broadcast",
+                event: "order-delivered",
+                payload: { orderId: activeOrder.id, status: res.data.status },
+              });
+              console.log("🎉 Broadcast order-delivered sent");
+              setDelivered(true);
+            } else {
+              // Notificar posición
+              await channelRef.current.send({
+                type: "broadcast",
+                event: "position-update",
+                payload: { lat: newLat, lng: newLng, status: res.data.status, arrived: false },
+              });
+              console.log("📍 Broadcast position-update sent", newLat, newLng);
+            }
           }
         } catch (err) {
           console.error("Error updating position", err);
@@ -206,11 +254,9 @@ export default function DeliveryDashboardPage() {
                   attribution="&copy; OpenStreetMap contributors"
                 />
                 <MapUpdater lat={position.lat} lng={position.lng} />
-                {/* Marcador del repartidor */}
                 <Marker position={[position.lat, position.lng]} icon={deliveryIcon}>
                   <Popup>Tu posición</Popup>
                 </Marker>
-                {/* Marcador del destino */}
                 {activeOrder.destination_lat && activeOrder.destination_lng && (
                   <Marker
                     position={[activeOrder.destination_lat, activeOrder.destination_lng]}
@@ -220,14 +266,6 @@ export default function DeliveryDashboardPage() {
                   </Marker>
                 )}
               </MapContainer>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <span className="text-xs text-gray-600 font-semibold">
-                  🎮 Modo simulación (teclado)
-                </span>
-              </label>
             </div>
 
             {!delivered && (
