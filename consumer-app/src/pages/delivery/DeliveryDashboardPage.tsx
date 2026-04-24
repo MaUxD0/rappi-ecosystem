@@ -115,17 +115,23 @@ export default function DeliveryDashboardPage() {
   }, [position, activeOrder, delivered]);
 
   async function handleAccept(order: Order) {
-    try {
-      await acceptOrder(order.id);
-      setActiveOrder(order);
-      setDelivered(false);
-      setPosition({ lat: 3.451, lng: -76.532 });
-      setTab("mine");
-      setRefresh((r) => r + 1);
-    } catch {
-      alert("Error aceptando la orden");
-    }
+  try {
+    const result = await acceptOrder(order.id);
+    // Usar el resultado que ya trae destination_lat y destination_lng
+    setActiveOrder({
+      ...order,
+      destination_lat: result.destination_lat,
+      destination_lng: result.destination_lng,
+      status: result.status,
+    });
+    setDelivered(false);
+    setPosition({ lat: 3.451, lng: -76.532 });
+    setTab("mine");
+    setRefresh((r) => r + 1);
+  } catch {
+    alert("Error aceptando la orden");
   }
+}
 
   return (
     <div className="min-h-screen bg-gray-50">

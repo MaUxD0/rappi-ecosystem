@@ -163,27 +163,31 @@ export default function ProductsPage() {
                   <span className="font-black text-orange-500 text-xl">${cartTotal.toFixed(2)}</span>
                 </div>
 
-                {/* Mapa de destino */}
-                <div className="mb-4">
-                  <button
-                    onClick={() => setShowMap(!showMap)}
-                    className={`w-full font-bold text-sm py-2 rounded-xl border-2 transition-all mb-2 ${
-                      destination
-                        ? "border-green-500 text-green-600 bg-green-50"
-                        : "border-orange-300 text-orange-500 hover:bg-orange-50"
-                    }`}
-                  >
-                    {destination ? "✓ Destino seleccionado" : "📍 Seleccionar destino"}
-                  </button>
-                  {showMap && (
-                    <DestinationMap
-                      onSelectLocation={(lat, lng) => {
-                        setDestination({ lat, lng });
-                        setShowMap(false);
-                      }}
-                    />
-                  )}
-                </div>
+               {/* Mapa de destino */}
+<div className="mb-4">
+  <button
+    onClick={() => setShowMap(!showMap)}
+    className={`w-full font-bold text-sm py-2 rounded-xl border-2 transition-all mb-2 ${
+      destination
+        ? "border-green-500 text-green-600 bg-green-50"
+        : "border-orange-300 text-orange-500 hover:bg-orange-50"
+    }`}
+  >
+    {showMap ? "▲ Ocultar mapa" : destination ? "✓ Cambiar destino" : "📍 Seleccionar destino"}
+  </button>
+  {showMap && (
+    <DestinationMap
+      onSelectLocation={(lat, lng) => {
+        setDestination({ lat, lng });
+      }}
+    />
+  )}
+  {!showMap && destination && (
+    <p className="text-xs text-green-600 font-bold text-center">
+      ✓ Destino seleccionado correctamente
+    </p>
+  )}
+</div>
 
                 <button
                   onClick={handleOrder}

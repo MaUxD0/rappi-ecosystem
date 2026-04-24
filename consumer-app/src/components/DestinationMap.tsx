@@ -2,7 +2,6 @@ import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import { useState } from "react";
 import L from "leaflet";
 
-// Fix para el ícono de leaflet en Vite
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
@@ -29,6 +28,7 @@ export default function DestinationMap({ onSelectLocation }: Props) {
   function handleClick(lat: number, lng: number) {
     setMarker({ lat, lng });
     onSelectLocation(lat, lng);
+    // Ya NO cerramos el mapa aquí
   }
 
   return (
@@ -36,7 +36,7 @@ export default function DestinationMap({ onSelectLocation }: Props) {
       <MapContainer
         center={[3.451, -76.532]}
         zoom={15}
-        style={{ height: "300px", width: "100%" }}
+        style={{ height: "280px", width: "100%" }}
       >
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -46,9 +46,12 @@ export default function DestinationMap({ onSelectLocation }: Props) {
         {marker && <Marker position={[marker.lat, marker.lng]} />}
       </MapContainer>
       {marker ? (
-        <p className="text-xs text-green-600 font-bold p-2 text-center bg-green-50">
-          ✓ Destino seleccionado: {marker.lat.toFixed(5)}, {marker.lng.toFixed(5)}
-        </p>
+        <div className="bg-green-50 px-3 py-2 flex items-center justify-between">
+          <p className="text-xs text-green-600 font-bold">
+            ✓ Destino: {marker.lat.toFixed(5)}, {marker.lng.toFixed(5)}
+          </p>
+          <p className="text-xs text-gray-400">Haz click para cambiar</p>
+        </div>
       ) : (
         <p className="text-xs text-gray-400 p-2 text-center">
           Haz click en el mapa para seleccionar el punto de entrega

@@ -15,7 +15,7 @@ export async function acceptOrder(orderId: string) {
     { orderId },
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  return response.data;
+  return response.data; 
 }
 
 export async function getMyDeliveries() {
