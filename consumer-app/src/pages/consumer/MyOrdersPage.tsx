@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import { getMyOrders } from "../../services/orderService";
 import { supabase } from "../../lib/supabase";
 import L from "leaflet";
@@ -31,6 +31,14 @@ interface Order {
 interface DeliveryPosition {
   lat: number;
   lng: number;
+}
+
+function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView([lat, lng]);
+  }, [lat, lng, map]);
+  return null;
 }
 
 export default function MyOrdersPage() {
@@ -180,9 +188,12 @@ export default function MyOrdersPage() {
                   style={{ height: "300px", width: "100%" }}
                 >
                   <TileLayer
+          
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution="&copy; OpenStreetMap contributors"
-                  />
+                    />
+  {/* ✅ FIX: re-centrar el mapa al moverse el repartidor */}
+  <RecenterMap lat={deliveryPosition.lat} lng={deliveryPosition.lng} />
                   <Marker position={[deliveryPosition.lat, deliveryPosition.lng]} icon={deliveryIcon}>
                     <Popup>🛵 Tu repartidor</Popup>
                   </Marker>

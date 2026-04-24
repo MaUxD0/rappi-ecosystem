@@ -22,35 +22,38 @@ export async function updatePosition(req: Request, res: Response) {
       lng
     );
 
-    // Broadcast posición en tiempo real a consumidores
-    await supabase.channel(`order:${orderId}`).send({
-      type: "broadcast",
-      event: "position-update",
-      payload: { lat, lng, status: result.status },
-    });
+   // Broadcast posición en tiempo real a consumidores
+const channel = supabase.channel(`order:${orderId}`);
+await channel.subscribe(); 
 
-    // Si llegó al destino (< 5 metros), marcar como Entregado
-    if (result.arrived) {
-      const delivered = await markAsDelivered(
-        Array.isArray(orderId) ? orderId[0] : orderId
-      );
+await channel.send({
+  type: "broadcast",
+  event: "position-update",
+  payload: { lat, lng, status: result.status },
+});
 
-      await supabase.channel(`order:${orderId}`).send({
-        type: "broadcast",
-        event: "order-delivered",
-        payload: { orderId, status: delivered.status },
-      });
+// Si llegó al destino (< 5 metros), marcar como Entregado
+if (result.arrived) {
+  const delivered = await markAsDelivered(
+    Array.isArray(orderId) ? orderId[0] : orderId
+  );
 
-      return res.json({
-        ...result,
-        status: delivered.status,
-        arrived: true,
-      });
-    }
+  await channel.send({
+    type: "broadcast",
+    event: "order-delivered",
+    payload: { orderId, status: delivered.status },
+  });
 
-    res.json(result);
+  return res.json({
+    ...result,
+    status: delivered.status,
+    arrived: true,
+  });
+}
+
+  res.json(result);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Error updating position" });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
