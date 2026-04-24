@@ -33,7 +33,14 @@ interface DeliveryPosition {
   lng: number;
 }
 
-// Agrega este componente dentro del archivo
+interface BroadcastPayload {
+  payload: {
+    lat?: number;
+    lng?: number;
+    status?: string;
+  };
+}
+
 function MapUpdater({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
   useEffect(() => {
@@ -76,7 +83,7 @@ export default function MyOrdersPage() {
       },
     });
 
-    const handlePositionUpdate = (payload: any) => {
+    const handlePositionUpdate = (payload: BroadcastPayload) => {
       console.log("📍 Position update:", payload.payload);
       if (payload.payload.lat && payload.payload.lng) {
         setDeliveryPosition({
@@ -87,7 +94,7 @@ export default function MyOrdersPage() {
       }
     };
 
-    const handleOrderDelivered = (payload: any) => {
+    const handleOrderDelivered = (payload: BroadcastPayload) => {
       console.log("✅ Order delivered:", payload.payload);
       setOrderStatus("Entregado");
       setShowToast(true);
