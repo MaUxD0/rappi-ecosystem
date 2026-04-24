@@ -43,6 +43,7 @@ export async function getMyDeliveries(deliveryId: string) {
        o.consumerid,
        o.storeid,
        o.deliveryid,
+       o.status,
        u.name as consumername,
        s.name as storename
      FROM orders o
@@ -52,4 +53,35 @@ export async function getMyDeliveries(deliveryId: string) {
     [deliveryId]
   );
   return result.rows;
+}
+
+export async function updateDeliveryPosition(
+  orderId: string,
+  lat: number,
+  lng: number
+) {
+  const result = await pool.query(
+    `UPDATE orders
+     SET 
+       delivery_position = ST_SetSRID(ST_MakePoint($2, $1), 4326),
+       status = CASE
+         WHEN ST_DWithin(
+           ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+           destination::geography,
+           5  -- metros
+         ) THEN $3
+         ELSE status
+       END
+     WHERE id = $4
+     RETURNING
+       id,
+       status,
+       ST_DWithin(
+         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+         destination::geography,
+         5
+       ) as arrived`,
+    [lat, lng, OrderStatus.DELIVERED, orderId]
+  );
+  return result.rows[0]; 
 }
