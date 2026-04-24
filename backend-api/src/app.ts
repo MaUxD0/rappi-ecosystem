@@ -12,7 +12,7 @@ import positionRoutes from "./features/positions/position.routes";
 const app = express();
 
 app.use(cors({
-  origin: "*", // o especifica tu dominio: "https://rappi-ecosystem-frontend-qwht80gpk-mauxs-projects-f591c1f2.vercel.app"
+  origin: "*", 
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));

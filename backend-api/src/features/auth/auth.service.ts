@@ -55,13 +55,13 @@ export async function registerUser(
 
   const user = userResult.rows[0];
 
-  if (role === "store") {
-    await pool.query(
-      `INSERT INTO stores (name, userId, isOpen)
-       VALUES ($1, $2, false)`,
-      [name + " Store", user.id]
-    );
-  }
+ if (role === "store") {
+  await pool.query(
+    `INSERT INTO stores (name, userid, isopen)
+     VALUES ($1, $2, false)`,
+    [name + " Store", user.id]
+  );
+}
 
   return user;
 }
