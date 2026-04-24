@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import { getAvailableOrders, acceptOrder, getMyDeliveries } from "../../services/deliveryService";
 import { api } from "../../api/api";
 import L from "leaflet";
@@ -20,7 +20,23 @@ const destIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
+// Ícono azul para el delivery
+const deliveryIcon = new L.Icon({
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+});
+
 const STEP = 0.00005;
+
+function MapUpdater({ lat, lng }: { lat: number; lng: number }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView([lat, lng], 17);
+  }, [lat, lng, map]);
+  return null;
+}
 
 interface Order {
   id: string;
@@ -115,22 +131,22 @@ export default function DeliveryDashboardPage() {
   }, [position, activeOrder, delivered]);
 
   async function handleAccept(order: Order) {
-  try {
-    const result = await acceptOrder(order.id);
-    setActiveOrder({
-      ...order,
-      destination_lat: result.destination_lat ?? order.destination_lat,
-      destination_lng: result.destination_lng ?? order.destination_lng,
-      status: result.status,
-    });
-    setDelivered(false);
-    setPosition({ lat: 3.451, lng: -76.532 });
-    setTab("mine");
-    setRefresh((r) => r + 1);
-  } catch {
-    alert("Error aceptando la orden");
+    try {
+      const result = await acceptOrder(order.id);
+      setActiveOrder({
+        ...order,
+        destination_lat: result.destination_lat ?? order.destination_lat,
+        destination_lng: result.destination_lng ?? order.destination_lng,
+        status: result.status,
+      });
+      setDelivered(false);
+      setPosition({ lat: 3.451, lng: -76.532 });
+      setTab("mine");
+      setRefresh((r) => r + 1);
+    } catch {
+      alert("Error aceptando la orden");
+    }
   }
-}
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -189,8 +205,9 @@ export default function DeliveryDashboardPage() {
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   attribution="&copy; OpenStreetMap contributors"
                 />
+                <MapUpdater lat={position.lat} lng={position.lng} />
                 {/* Marcador del repartidor */}
-                <Marker position={[position.lat, position.lng]}>
+                <Marker position={[position.lat, position.lng]} icon={deliveryIcon}>
                   <Popup>Tu posición</Popup>
                 </Marker>
                 {/* Marcador del destino */}
@@ -203,6 +220,14 @@ export default function DeliveryDashboardPage() {
                   </Marker>
                 )}
               </MapContainer>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <span className="text-xs text-gray-600 font-semibold">
+                  🎮 Modo simulación (teclado)
+                </span>
+              </label>
             </div>
 
             {!delivered && (
