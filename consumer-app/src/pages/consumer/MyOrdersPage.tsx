@@ -47,11 +47,27 @@ interface OrderDetail {
   status: string;
 }
 
-function MapUpdater({ lat, lng }: { lat: number; lng: number }) {
+function MapUpdater({
+  deliveryPos,
+  destinationPos,
+}: {
+  deliveryPos: Position | null;
+  destinationPos: Position | null;
+}) {
   const map = useMap();
   useEffect(() => {
-    map.setView([lat, lng], 17);
-  }, [lat, lng, map]);
+    if (deliveryPos && destinationPos) {
+      const bounds = L.latLngBounds(
+        [deliveryPos.lat, deliveryPos.lng],
+        [destinationPos.lat, destinationPos.lng]
+      );
+      map.fitBounds(bounds, { padding: [50, 50] });
+    } else if (deliveryPos) {
+      map.setView([deliveryPos.lat, deliveryPos.lng], 17);
+    } else if (destinationPos) {
+      map.setView([destinationPos.lat, destinationPos.lng], 17);
+    }
+  }, [deliveryPos, destinationPos, map]);
   return null;
 }
 
@@ -331,7 +347,7 @@ export default function MyOrdersPage() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution="&copy; OpenStreetMap contributors"
                   />
-                 <MapUpdater lat={(deliveryPos ?? destinationPos)!.lat} lng={(deliveryPos ?? destinationPos)!.lng} />
+                 <MapUpdater deliveryPos={deliveryPos} destinationPos={destinationPos} />
                   {deliveryPos && (
                   <Marker position={[deliveryPos.lat, deliveryPos.lng]} icon={deliveryIcon}>
                    <Popup>🛵 Tu repartidor</Popup>
