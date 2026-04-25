@@ -13,7 +13,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
-// Ícono rojo para el destino
 const destIcon = new L.Icon({
   iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
@@ -21,7 +20,6 @@ const destIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
-// Ícono azul para el delivery
 const deliveryIcon = new L.Icon({
   iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
@@ -60,8 +58,9 @@ export default function DeliveryDashboardPage() {
   const [position, setPosition] = useState({ lat: 3.451, lng: -76.532 });
   const [delivered, setDelivered] = useState(false);
 
-  // Canal de Supabase persistente para el pedido activo
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  // FIX: rastrear si el canal ya está SUBSCRIBED antes de hacer .send()
+  const channelReadyRef = useRef(false);
 
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPosition = useRef(position);
@@ -82,25 +81,28 @@ export default function DeliveryDashboardPage() {
     fetchData();
   }, [refresh]);
 
-  // Crear canal de Supabase cuando hay un pedido activo y mantenerlo abierto
+  // Canal de Supabase persistente para el pedido activo
   useEffect(() => {
     if (!activeOrder) return;
 
-    // Crear canal persistente
+    channelReadyRef.current = false;
+
     const channel = supabase.channel(`order:${activeOrder.id}`, {
-      config: {
-        broadcast: { self: false },
-      },
+      config: { broadcast: { self: false } },
     });
 
     channel.subscribe((status) => {
       console.log("📡 Delivery channel status:", status);
+      if (status === "SUBSCRIBED") {
+        // FIX: solo marcar como listo cuando Supabase confirma la suscripción
+        channelReadyRef.current = true;
+      }
     });
 
     channelRef.current = channel;
 
     return () => {
-      console.log("🔌 Closing delivery channel for order:", activeOrder.id);
+      channelReadyRef.current = false;
       channel.unsubscribe();
       supabase.removeChannel(channel);
       channelRef.current = null;
@@ -135,18 +137,19 @@ export default function DeliveryDashboardPage() {
       throttleRef.current = setTimeout(async () => {
         try {
           const token = localStorage.getItem("token")!;
+          const { lat: newLat, lng: newLng } = pendingPosition.current;
+
+          // FIX CRÍTICO: la ruta correcta según el lab es /orders/:id/position
+          // NO /delivery/:id/position
           const res = await api.patch(
-            `/delivery/${activeOrder.id}/position`,
-            pendingPosition.current,
+            `/orders/${activeOrder.id}/position`,
+            { lat: newLat, lng: newLng },
             { headers: { Authorization: `Bearer ${token}` } }
           );
 
-          const { lat: newLat, lng: newLng } = pendingPosition.current;
-
-          // 4. Broadcast desde el frontend (canal persistente)
-          if (channelRef.current) {
+          // 4. Broadcast solo si el canal ya está SUBSCRIBED
+          if (channelRef.current && channelReadyRef.current) {
             if (res.data.arrived) {
-              // Notificar entrega
               await channelRef.current.send({
                 type: "broadcast",
                 event: "order-delivered",
@@ -155,17 +158,18 @@ export default function DeliveryDashboardPage() {
               console.log("🎉 Broadcast order-delivered sent");
               setDelivered(true);
             } else {
-              // Notificar posición
               await channelRef.current.send({
                 type: "broadcast",
                 event: "position-update",
-                payload: { lat: newLat, lng: newLng, status: res.data.status, arrived: false },
+                payload: { lat: newLat, lng: newLng, status: res.data.status },
               });
               console.log("📍 Broadcast position-update sent", newLat, newLng);
             }
+          } else {
+            console.warn("⚠️ Canal no listo aún, broadcast omitido");
           }
         } catch (err) {
-          console.error("Error updating position", err);
+          console.error("Error updating position:", err);
         }
         throttleRef.current = null;
       }, 1000);
@@ -270,7 +274,10 @@ export default function DeliveryDashboardPage() {
 
             {!delivered && (
               <p className="text-xs text-gray-400 text-center">
-                Usa las teclas <kbd className="bg-gray-100 px-1 rounded">↑</kbd> <kbd className="bg-gray-100 px-1 rounded">↓</kbd> <kbd className="bg-gray-100 px-1 rounded">←</kbd> <kbd className="bg-gray-100 px-1 rounded">→</kbd> para moverte
+                Usa las teclas <kbd className="bg-gray-100 px-1 rounded">↑</kbd>{" "}
+                <kbd className="bg-gray-100 px-1 rounded">↓</kbd>{" "}
+                <kbd className="bg-gray-100 px-1 rounded">←</kbd>{" "}
+                <kbd className="bg-gray-100 px-1 rounded">→</kbd> para moverte
               </p>
             )}
           </div>
