@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import * as orderService from "./orders.service";
+import { getOrderDetail } from "../../services/order.service";
 import { AuthRequest } from "../../middlewares/authMiddleware";
 
 export async function createOrder(req: AuthRequest, res: Response) {
@@ -43,5 +44,17 @@ export async function getMyOrders(req: AuthRequest, res: Response) {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error fetching orders" });
+  }
+}
+
+export async function getOrderDetailController(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string;
+    const order = await getOrderDetail(id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    res.json(order);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error fetching order detail" });
   }
 }

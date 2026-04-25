@@ -27,4 +27,10 @@ router.get(
   orderController.getMyOrders
 );
 
+router.get(
+  "/:id",
+  authenticateToken,
+  orderController.getOrderDetailController
+);
+
 export default router;
