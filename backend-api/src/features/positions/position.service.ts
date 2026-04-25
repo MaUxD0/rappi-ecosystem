@@ -6,25 +6,31 @@ export async function updateDeliveryPosition(
   lat: number,
   lng: number
 ) {
+  // IMPORTANTE:
+  // ST_MakePoint(lng, lat) — PostGIS usa (longitude, latitude)
+  // ST_DWithin con ::geography mide en METROS reales
   const result = await pool.query(
     `UPDATE orders
      SET delivery_position = ST_SetSRID(ST_MakePoint($1, $2), 4326)
      WHERE id = $3
-     RETURNING 
+     RETURNING
        id,
        status,
-       (ST_DWithin(
-         ST_SetSRID(ST_MakePoint($1, $2), 4326),
-         destination,
+       ST_DWithin(
+         ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+         destination::geography,
          5
-       ))::boolean as arrived`,
-    [lng, lat, orderId]
+       ) AS arrived`,
+    [lng, lat, orderId]  // $1=lng, $2=lat, $3=orderId
   );
+
+  if (result.rows.length === 0) return null;
+
   const row = result.rows[0];
   return {
-    id: row.id,
-    status: row.status,
-    arrived: row.arrived === true
+    id: row.id as string,
+    status: row.status as string,
+    arrived: row.arrived === true,
   };
 }
 

@@ -12,18 +12,24 @@ import positionRoutes from "./features/positions/position.routes";
 const app = express();
 
 app.use(cors({
-  origin: "*", 
+  origin: "*",
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
 app.use(express.json());
 
+// Rutas principales
 app.use("/stores", storeRoutes);
 app.use("/products", productRoutes);
 app.use("/orders", orderRoutes);
+
+
 app.use("/delivery", deliveryRoutes);
+
+
 app.use("/delivery", positionRoutes);
+
 app.use("/auth", authRoutes);
 
 app.get("/store-only", authenticateToken, authorizeRole("store"), (req, res) => {

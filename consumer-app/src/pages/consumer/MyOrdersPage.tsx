@@ -1,11 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import { getMyOrders } from "../../services/orderService";
 import { supabase } from "../../lib/supabase";
 import { api } from "../../api/api";
 import L from "leaflet";
 
-// Fix íconos leaflet
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
@@ -40,14 +39,6 @@ interface Position {
   lng: number;
 }
 
-interface BroadcastPayload {
-  payload: {
-    lat?: number;
-    lng?: number;
-    status?: string;
-  };
-}
-
 interface OrderDetail {
   delivery_lat: number | null;
   delivery_lng: number | null;
@@ -56,7 +47,6 @@ interface OrderDetail {
   status: string;
 }
 
-// Re-centra el mapa cuando cambia la posición del repartidor
 function MapUpdater({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
   useEffect(() => {
@@ -73,41 +63,54 @@ export default function MyOrdersPage() {
   const [orderStatus, setOrderStatus] = useState<string>("");
   const [loadingPos, setLoadingPos] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [channelStatus, setChannelStatus] = useState<string>("");
 
-  // ── Polling de órdenes cada 2s ──────────────────────────────────────────────
+  // Ref para el canal activo — evita que closures viejas lo cierren
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Polling de órdenes ──────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       try {
         const data = await getMyOrders();
         setOrders(data);
       } catch (e) {
-        console.error("Error loading orders", e);
+        console.error("Error cargando órdenes", e);
       }
     }
     load();
-    const t = setInterval(load, 2000);
+    const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, []);
 
-  // ── Iniciar tracking: carga posición actual del backend, luego escucha broadcast ──
+  // ── Iniciar tracking ────────────────────────────────────────────────────────
   const startTracking = useCallback(async (orderId: string, currentStatus: string) => {
-    // Si ya estamos rastreando esta misma orden, no hacer nada
+    // Si ya rastreamos esta orden, no hacer nada
     if (trackingOrderId === orderId) return;
+
+    // Limpiar canal anterior
+    if (channelRef.current) {
+      console.log("🧹 Limpiando canal anterior");
+      await channelRef.current.unsubscribe();
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
 
     setTrackingOrderId(orderId);
     setDeliveryPos(null);
     setDestinationPos(null);
     setOrderStatus(currentStatus);
     setLoadingPos(true);
+    setChannelStatus("Conectando...");
 
+    // 1. Cargar posición actual desde backend
     try {
       const token = localStorage.getItem("token")!;
-      // GET /orders/:id → devuelve delivery_lat/lng y destination_lat/lng desde PostGIS
       const res = await api.get<OrderDetail>(`/orders/${orderId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const d = res.data;
-
       if (d.delivery_lat && d.delivery_lng) {
         setDeliveryPos({ lat: d.delivery_lat, lng: d.delivery_lng });
       }
@@ -116,59 +119,97 @@ export default function MyOrdersPage() {
       }
       if (d.status) setOrderStatus(d.status);
     } catch (e) {
-      console.error("Error loading order detail:", e);
+      console.error("Error cargando detalle de orden:", e);
     } finally {
       setLoadingPos(false);
     }
-  }, [trackingOrderId]);
 
-  // ── Suscripción Supabase Broadcast ──────────────────────────────────────────
-  useEffect(() => {
-    if (!trackingOrderId) return;
+    // 2. Crear canal Supabase
+    const channelName = `order:${orderId}`;
+    console.log("📡 Consumer suscribiéndose a:", channelName);
 
-    // El canal debe usar el mismo nombre que el repartidor: `order:<id>`
-    const channel = supabase.channel(`order:${trackingOrderId}`, {
-      config: { broadcast: { self: true } },
+    const channel = supabase.channel(channelName, {
+      config: {
+        broadcast: { self: false },
+      },
     });
 
     channel
-      .on("broadcast", { event: "position-update" }, (msg: BroadcastPayload) => {
-        const { lat, lng, status } = msg.payload;
-        console.log("📍 position-update recibido:", lat, lng);
+      .on("broadcast", { event: "position-update" }, (msg) => {
+        console.log("📍 [Consumer] position-update recibido:", msg.payload);
+        const { lat, lng, status } = msg.payload as { lat?: number; lng?: number; status?: string };
         if (lat !== undefined && lng !== undefined) {
-          // Actualiza el marcador azul en tiempo real
           setDeliveryPos({ lat, lng });
         }
         if (status) setOrderStatus(status);
       })
-      .on("broadcast", { event: "order-delivered" }, () => {
-        console.log("✅ order-delivered recibido");
+      .on("broadcast", { event: "order-delivered" }, (msg) => {
+        console.log("✅ [Consumer] order-delivered recibido:", msg.payload);
         setOrderStatus("Entregado");
+
+        // Mostrar toast
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setShowToast(true);
-        setTimeout(() => setShowToast(false), 5000);
-        // Refrescar lista para mostrar badge "Entregado"
+        toastTimerRef.current = setTimeout(() => setShowToast(false), 6000);
+
+        // Refrescar lista
         getMyOrders().then(setOrders).catch(console.error);
       })
-      .subscribe((status) => {
-        console.log("📡 Consumer canal status:", status, "| order:", trackingOrderId);
+      .subscribe((status, err) => {
+        console.log("📡 [Consumer] Canal status:", status, err ?? "");
+        setChannelStatus(status === "SUBSCRIBED" ? "En vivo ✓" : status);
+        if (status === "SUBSCRIBED") {
+          channelRef.current = channel;
+        }
       });
 
-    return () => {
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
-    };
+    // Guardar referencia inmediatamente para cleanup
+    channelRef.current = channel;
   }, [trackingOrderId]);
+
+  // ── Limpiar canal al desmontar o al dejar de rastrear ───────────────────────
+  const stopTracking = useCallback(async () => {
+    if (channelRef.current) {
+      await channelRef.current.unsubscribe();
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+    setTrackingOrderId(null);
+    setDeliveryPos(null);
+    setDestinationPos(null);
+    setOrderStatus("");
+    setChannelStatus("");
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      // Cleanup al desmontar el componente
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+        supabase.removeChannel(channelRef.current);
+      }
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   // ── Agrupar items por orderid ───────────────────────────────────────────────
   const grouped = orders.reduce(
     (acc, o) => {
       if (!acc[o.orderid]) {
-        acc[o.orderid] = { orderid: o.orderid, storeid: o.storeid, status: o.status, items: [] };
+        acc[o.orderid] = {
+          orderid: o.orderid,
+          storeid: o.storeid,
+          status: o.status,
+          items: [],
+        };
       }
       acc[o.orderid].items.push({ productname: o.productname, quantity: o.quantity });
       return acc;
     },
-    {} as Record<string, { orderid: string; storeid: string; status: string; items: { productname: string; quantity: number }[] }>
+    {} as Record<
+      string,
+      { orderid: string; storeid: string; status: string; items: { productname: string; quantity: number }[] }
+    >
   );
   const uniqueOrders = Object.values(grouped);
 
@@ -177,18 +218,34 @@ export default function MyOrdersPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Toast llegada */}
+      {/* ── Toast de entrega ── */}
       {showToast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-green-500 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-bounce">
-          <span className="text-2xl">🎉</span>
+        <div
+          className="fixed top-4 left-1/2 z-[9999] bg-green-500 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3"
+          style={{ transform: "translateX(-50%)", animation: "slideDown 0.4s ease" }}
+        >
+          <span className="text-3xl">🎉</span>
           <div>
-            <p className="font-black text-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
-              ¡Tu repartidor llegó!
+            <p className="font-black text-base" style={{ fontFamily: "Nunito, sans-serif" }}>
+              ¡Tu pedido fue entregado!
             </p>
-            <p className="text-xs text-green-100">El pedido ha sido entregado</p>
+            <p className="text-xs text-green-100 mt-0.5">El repartidor llegó a tu dirección</p>
           </div>
+          <button
+            onClick={() => setShowToast(false)}
+            className="ml-2 text-green-200 hover:text-white font-bold text-lg"
+          >
+            ✕
+          </button>
         </div>
       )}
+
+      <style>{`
+        @keyframes slideDown {
+          from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+      `}</style>
 
       <header className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-3xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -208,37 +265,44 @@ export default function MyOrdersPage() {
           Mis órdenes
         </h2>
         <p className="text-gray-400 text-sm mb-6">
-          Selecciona una orden en entrega para rastrearla en tiempo real
+          Toca "Rastrear" en una orden en entrega para verla en tiempo real
         </p>
 
         {/* ── Panel de tracking ── */}
         {trackingOrderId && (
           <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm mb-6">
             <div className="flex items-center justify-between mb-3">
-              <p className="font-black text-gray-900 text-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
-                📍 Rastreando en tiempo real
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="font-black text-gray-900 text-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
+                  📍 Rastreando en tiempo real
+                </p>
+                {/* Indicador de canal */}
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                  channelStatus.includes("✓") ? "bg-green-100 text-green-600" : "bg-yellow-100 text-yellow-600"
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${channelStatus.includes("✓") ? "bg-green-500 animate-pulse" : "bg-yellow-400"}`} />
+                  {channelStatus || "Conectando..."}
+                </span>
+              </div>
               <div className="flex items-center gap-2">
                 <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                  orderStatus === "Entregado"   ? "bg-green-100 text-green-600"
-                  : orderStatus === "En entrega" ? "bg-orange-100 text-orange-600"
-                  : "bg-gray-100 text-gray-500"
+                  orderStatus === "Entregado"
+                    ? "bg-green-100 text-green-600"
+                    : orderStatus === "En entrega"
+                    ? "bg-orange-100 text-orange-600"
+                    : "bg-gray-100 text-gray-500"
                 }`}>
                   {orderStatus || "Conectando..."}
                 </span>
                 <button
-                  onClick={() => {
-                    setTrackingOrderId(null);
-                    setDeliveryPos(null);
-                    setDestinationPos(null);
-                    setOrderStatus("");
-                  }}
+                  onClick={stopTracking}
                   className="text-gray-400 hover:text-gray-600 text-sm font-bold"
-                >✕</button>
+                >
+                  ✕
+                </button>
               </div>
             </div>
 
-            {/* Estado del mapa */}
             {loadingPos ? (
               <div className="h-48 flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
                 <div className="text-center text-gray-400">
@@ -251,7 +315,9 @@ export default function MyOrdersPage() {
                 <div className="text-center text-gray-400">
                   <div className="text-3xl mb-2">🛵</div>
                   <p className="text-sm font-bold">Esperando al repartidor...</p>
-                  <p className="text-xs mt-1">El mapa aparece cuando el repartidor empieza a moverse</p>
+                  <p className="text-xs mt-1 text-gray-300">
+                    El mapa aparece cuando el repartidor empiece a moverse
+                  </p>
                 </div>
               </div>
             ) : (
@@ -265,15 +331,10 @@ export default function MyOrdersPage() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution="&copy; OpenStreetMap contributors"
                   />
-                  {/* Sigue al repartidor automáticamente */}
                   <MapUpdater lat={deliveryPos.lat} lng={deliveryPos.lng} />
-
-                  {/* 🔵 Repartidor — se mueve con cada broadcast */}
                   <Marker position={[deliveryPos.lat, deliveryPos.lng]} icon={deliveryIcon}>
                     <Popup>🛵 Tu repartidor</Popup>
                   </Marker>
-
-                  {/* 🔴 Destino */}
                   {destinationPos && (
                     <Marker position={[destinationPos.lat, destinationPos.lng]} icon={destIcon}>
                       <Popup>📦 Tu dirección de entrega</Popup>
@@ -314,9 +375,11 @@ export default function MyOrdersPage() {
                     </p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                        order.status === "Entregado"   ? "bg-green-100 text-green-600"
-                        : order.status === "En entrega" ? "bg-orange-100 text-orange-600"
-                        : "bg-blue-100 text-blue-600"
+                        order.status === "Entregado"
+                          ? "bg-green-100 text-green-600"
+                          : order.status === "En entrega"
+                          ? "bg-orange-100 text-orange-600"
+                          : "bg-blue-100 text-blue-600"
                       }`}>
                         {order.status || "Creado"}
                       </span>
@@ -340,7 +403,8 @@ export default function MyOrdersPage() {
                 <div className="flex flex-col gap-1 pl-16">
                   {order.items.map((item, i) => (
                     <p key={i} className="text-xs text-gray-500">
-                      • {item.productname} <span className="text-gray-400">x{item.quantity}</span>
+                      • {item.productname}{" "}
+                      <span className="text-gray-400">x{item.quantity}</span>
                     </p>
                   ))}
                 </div>

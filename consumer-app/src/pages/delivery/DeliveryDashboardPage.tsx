@@ -1,11 +1,10 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import { getAvailableOrders, acceptOrder, getMyDeliveries } from "../../services/deliveryService";
 import { api } from "../../api/api";
 import { supabase } from "../../lib/supabase";
 import L from "leaflet";
 
-// Fix íconos leaflet
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
@@ -57,14 +56,26 @@ export default function DeliveryDashboardPage() {
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [position, setPosition] = useState({ lat: 3.451, lng: -76.532 });
   const [delivered, setDelivered] = useState(false);
+  const [channelReady, setChannelReady] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
 
+  // Referencias estables para el canal y la posición pendiente
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  // FIX: rastrear si el canal ya está SUBSCRIBED antes de hacer .send()
-  const channelReadyRef = useRef(false);
+  const positionRef = useRef({ lat: 3.451, lng: -76.532 });
+  const deliveredRef = useRef(false);
+  const isSendingRef = useRef(false); // evitar envíos solapados
+  const lastSentRef = useRef(0);      // timestamp del último envío (throttle)
 
-  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingPosition = useRef(position);
+  // Sincronizar refs con state para usarlos en closures del keydown
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
 
+  useEffect(() => {
+    deliveredRef.current = delivered;
+  }, [delivered]);
+
+  // ── Cargar datos ────────────────────────────────────────────────────────────
   useEffect(() => {
     async function fetchData() {
       try {
@@ -75,124 +86,174 @@ export default function DeliveryDashboardPage() {
         setAvailable(avail);
         setMyDeliveries(mine);
       } catch {
-        console.error("Error loading delivery data");
+        console.error("Error cargando datos de delivery");
       }
     }
     fetchData();
   }, [refresh]);
 
-  // Canal de Supabase persistente para el pedido activo
+  // ── Crear canal Supabase cuando hay orden activa ────────────────────────────
   useEffect(() => {
     if (!activeOrder) return;
 
-    channelReadyRef.current = false;
+    setChannelReady(false);
+    setStatusMsg("Conectando canal...");
 
-    const channel = supabase.channel(`order:${activeOrder.id}`, {
-      config: { broadcast: { self: false } },
+    // Limpiar canal anterior si existe
+    if (channelRef.current) {
+      channelRef.current.unsubscribe();
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
+    const channelName = `order:${activeOrder.id}`;
+    console.log("🔌 Creando canal:", channelName);
+
+    const channel = supabase.channel(channelName, {
+      config: {
+        broadcast: { self: false, ack: false },
+      },
     });
 
-    channel.subscribe((status) => {
-      console.log("📡 Delivery channel status:", status);
+    channel.subscribe((status, err) => {
+      console.log("📡 Canal status:", status, err ?? "");
       if (status === "SUBSCRIBED") {
-        // FIX: solo marcar como listo cuando Supabase confirma la suscripción
-        channelReadyRef.current = true;
+        channelRef.current = channel;
+        setChannelReady(true);
+        setStatusMsg("Canal listo ✓");
+        console.log("✅ Canal SUBSCRIBED:", channelName);
+      } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+        setChannelReady(false);
+        setStatusMsg("Error de canal, reconectando...");
+        console.error("❌ Canal error:", status);
       }
     });
 
-    channelRef.current = channel;
-
     return () => {
-      channelReadyRef.current = false;
+      console.log("🧹 Limpiando canal:", channelName);
+      setChannelReady(false);
       channel.unsubscribe();
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [activeOrder]);
+  }, [activeOrder?.id]);
 
-  // Movimiento por teclado con throttle
+  // ── Función para enviar posición al backend + broadcast ─────────────────────
+  const sendPosition = useCallback(
+    async (lat: number, lng: number) => {
+      if (!activeOrder || deliveredRef.current || isSendingRef.current) return;
+
+      const now = Date.now();
+      // Throttle: máximo 1 envío por segundo
+      if (now - lastSentRef.current < 1000) return;
+
+      isSendingRef.current = true;
+      lastSentRef.current = now;
+
+      try {
+        const token = localStorage.getItem("token")!;
+
+        // ✅ RUTA CORRECTA: /delivery/:orderId/position (según position.routes.ts)
+        const res = await api.patch<{ status: string; arrived: boolean }>(
+          `/delivery/${activeOrder.id}/position`,
+          { lat, lng },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        console.log("📍 Backend response:", res.data);
+
+        const ch = channelRef.current;
+
+        if (res.data.arrived) {
+          // ── ENTREGADO ────────────────────────────────────────────────────
+          setDelivered(true);
+          deliveredRef.current = true;
+          setStatusMsg("¡Entregado! 🎉");
+
+          if (ch) {
+            await ch.send({
+              type: "broadcast",
+              event: "order-delivered",
+              payload: {
+                orderId: activeOrder.id,
+                status: res.data.status ?? "Entregado",
+              },
+            });
+            console.log("🎉 Broadcast order-delivered enviado");
+          }
+        } else {
+          // ── EN MOVIMIENTO ────────────────────────────────────────────────
+          if (ch) {
+            await ch.send({
+              type: "broadcast",
+              event: "position-update",
+              payload: {
+                lat,
+                lng,
+                status: res.data.status,
+              },
+            });
+            console.log("📍 Broadcast position-update enviado:", lat, lng);
+          } else {
+            console.warn("⚠️ Canal no disponible aún, broadcast omitido");
+          }
+        }
+      } catch (err) {
+        console.error("❌ Error enviando posición:", err);
+        setStatusMsg("Error enviando posición");
+      } finally {
+        isSendingRef.current = false;
+      }
+    },
+    [activeOrder]
+  );
+
+  // ── Movimiento por teclado ──────────────────────────────────────────────────
   useEffect(() => {
     if (!activeOrder || delivered) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      let { lat, lng } = position;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+      if (deliveredRef.current) return;
 
+      e.preventDefault();
+
+      // Calcular nueva posición desde la ref (siempre actualizada)
+      let { lat, lng } = positionRef.current;
       switch (e.key) {
         case "ArrowUp":    lat += STEP; break;
         case "ArrowDown":  lat -= STEP; break;
         case "ArrowLeft":  lng -= STEP; break;
         case "ArrowRight": lng += STEP; break;
-        default: return;
       }
 
-      e.preventDefault();
-
-      // 1. Mover marcador inmediatamente en el mapa
+      // 1. Actualizar estado del mapa inmediatamente
       setPosition({ lat, lng });
-      pendingPosition.current = { lat, lng };
+      positionRef.current = { lat, lng };
 
-      // 2. Si ya hay throttle activo, no hacer nada más
-      if (throttleRef.current) return;
-
-      // 3. Enviar cada 1 segundo
-      throttleRef.current = setTimeout(async () => {
-        try {
-          const token = localStorage.getItem("token")!;
-          const { lat: newLat, lng: newLng } = pendingPosition.current;
-
-          // FIX CRÍTICO: la ruta correcta según el lab es /orders/:id/position
-          // NO /delivery/:id/position
-          const res = await api.patch(
-            `/orders/${activeOrder.id}/position`,
-            { lat: newLat, lng: newLng },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-
-          // 4. Broadcast solo si el canal ya está SUBSCRIBED
-          if (channelRef.current && channelReadyRef.current) {
-            if (res.data.arrived) {
-              await channelRef.current.send({
-                type: "broadcast",
-                event: "order-delivered",
-                payload: { orderId: activeOrder.id, status: res.data.status },
-              });
-              console.log("🎉 Broadcast order-delivered sent");
-              setDelivered(true);
-            } else {
-              await channelRef.current.send({
-                type: "broadcast",
-                event: "position-update",
-                payload: { lat: newLat, lng: newLng, status: res.data.status },
-              });
-              console.log("📍 Broadcast position-update sent", newLat, newLng);
-            }
-          } else {
-            console.warn("⚠️ Canal no listo aún, broadcast omitido");
-          }
-        } catch (err) {
-          console.error("Error updating position:", err);
-        }
-        throttleRef.current = null;
-      }, 1000);
+      // 2. Enviar al backend (con throttle interno)
+      sendPosition(lat, lng);
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      if (throttleRef.current) clearTimeout(throttleRef.current);
-    };
-  }, [position, activeOrder, delivered]);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeOrder, delivered, sendPosition]);
 
+  // ── Aceptar orden ───────────────────────────────────────────────────────────
   async function handleAccept(order: Order) {
     try {
       const result = await acceptOrder(order.id);
-      setActiveOrder({
+      const newOrder: Order = {
         ...order,
         destination_lat: result.destination_lat ?? order.destination_lat,
         destination_lng: result.destination_lng ?? order.destination_lng,
         status: result.status,
-      });
+      };
+      setActiveOrder(newOrder);
       setDelivered(false);
+      deliveredRef.current = false;
       setPosition({ lat: 3.451, lng: -76.532 });
+      positionRef.current = { lat: 3.451, lng: -76.532 };
       setTab("mine");
       setRefresh((r) => r + 1);
     } catch {
@@ -221,23 +282,37 @@ export default function DeliveryDashboardPage() {
           <p className="text-orange-100 text-sm">Acepta órdenes y gestiona tus entregas</p>
         </div>
 
-        {/* Mapa activo cuando hay una orden en curso */}
+        {/* ── Panel de orden activa ── */}
         {activeOrder && (
           <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm mb-6">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
               <p className="font-black text-gray-900 text-sm" style={{ fontFamily: "Nunito, sans-serif" }}>
                 🛵 Entregando a: {activeOrder.consumername}
               </p>
-              {delivered ? (
-                <span className="bg-green-100 text-green-600 text-xs font-bold px-3 py-1 rounded-full">
-                  ✓ Entregado
+              <div className="flex items-center gap-2">
+                {/* Indicador de canal */}
+                <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full ${
+                  channelReady ? "bg-green-100 text-green-600" : "bg-yellow-100 text-yellow-600"
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${channelReady ? "bg-green-500 animate-pulse" : "bg-yellow-400"}`} />
+                  {channelReady ? "En vivo" : "Conectando..."}
                 </span>
-              ) : (
-                <span className="bg-orange-100 text-orange-600 text-xs font-bold px-3 py-1 rounded-full">
-                  En entrega
-                </span>
-              )}
+                {delivered ? (
+                  <span className="bg-green-100 text-green-600 text-xs font-bold px-3 py-1 rounded-full">
+                    ✓ Entregado
+                  </span>
+                ) : (
+                  <span className="bg-orange-100 text-orange-600 text-xs font-bold px-3 py-1 rounded-full">
+                    En entrega
+                  </span>
+                )}
+              </div>
             </div>
+
+            {/* Debug status */}
+            {statusMsg && (
+              <p className="text-xs text-gray-400 mb-2 font-mono">{statusMsg}</p>
+            )}
 
             {delivered && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-3 text-center">
@@ -273,12 +348,19 @@ export default function DeliveryDashboardPage() {
             </div>
 
             {!delivered && (
-              <p className="text-xs text-gray-400 text-center">
-                Usa las teclas <kbd className="bg-gray-100 px-1 rounded">↑</kbd>{" "}
-                <kbd className="bg-gray-100 px-1 rounded">↓</kbd>{" "}
-                <kbd className="bg-gray-100 px-1 rounded">←</kbd>{" "}
-                <kbd className="bg-gray-100 px-1 rounded">→</kbd> para moverte
-              </p>
+              <div className="text-center">
+                <p className="text-xs text-gray-400">
+                  Usa las teclas{" "}
+                  <kbd className="bg-gray-100 px-1 rounded">↑</kbd>{" "}
+                  <kbd className="bg-gray-100 px-1 rounded">↓</kbd>{" "}
+                  <kbd className="bg-gray-100 px-1 rounded">←</kbd>{" "}
+                  <kbd className="bg-gray-100 px-1 rounded">→</kbd>{" "}
+                  para moverte
+                </p>
+                <p className="text-xs text-gray-300 mt-1">
+                  Pos: {position.lat.toFixed(6)}, {position.lng.toFixed(6)}
+                </p>
+              </div>
             )}
           </div>
         )}
