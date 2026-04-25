@@ -310,7 +310,7 @@ export default function MyOrdersPage() {
                   <p className="text-sm font-bold">Cargando posición...</p>
                 </div>
               </div>
-            ) : !deliveryPos ? (
+            ) : !deliveryPos && !destinationPos ? (
               <div className="h-48 flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
                 <div className="text-center text-gray-400">
                   <div className="text-3xl mb-2">🛵</div>
@@ -331,10 +331,12 @@ export default function MyOrdersPage() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution="&copy; OpenStreetMap contributors"
                   />
-                  <MapUpdater lat={deliveryPos.lat} lng={deliveryPos.lng} />
+                 <MapUpdater lat={(deliveryPos ?? destinationPos)!.lat} lng={(deliveryPos ?? destinationPos)!.lng} />
+                  {deliveryPos && (
                   <Marker position={[deliveryPos.lat, deliveryPos.lng]} icon={deliveryIcon}>
-                    <Popup>🛵 Tu repartidor</Popup>
+                   <Popup>🛵 Tu repartidor</Popup>
                   </Marker>
+                  )}
                   {destinationPos && (
                     <Marker position={[destinationPos.lat, destinationPos.lng]} icon={destIcon}>
                       <Popup>📦 Tu dirección de entrega</Popup>
